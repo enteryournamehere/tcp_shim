@@ -27,10 +27,13 @@ impl ReadStr for &[u8] {
 		let (a, b) = self.split_at(33);
 		let terminator = match a.iter().position(|&x| x == 0) {
 			Some(i) => i,
-			None => { return Err(io::Error::new(InvalidData, "no null terminator")) }
+			None => return Err(io::Error::new(InvalidData, "no null terminator")),
 		};
 		match std::str::from_utf8(&a[..terminator]) {
-			Ok(x) => { *self = b; Ok(x) }
+			Ok(x) => {
+				*self = b;
+				Ok(x)
+			}
 			Err(_) => Err(io::Error::new(InvalidData, "not valid utf8")),
 		}
 	}
@@ -44,15 +47,15 @@ impl<W: Write> WriteStr for W {
 			return Err(io::Error::new(InvalidData, "str too long"));
 		}
 		self.write(bytes)?;
-		self.write(&vec![0; 33-len])?;
+		self.write(&vec![0; 33 - len])?;
 		Ok(())
 	}
 }
 
 #[cfg(test)]
 mod tests {
-	use std::io::ErrorKind::InvalidData;
 	use super::{ReadStr, WriteStr};
+	use std::io::ErrorKind::InvalidData;
 
 	#[test]
 	fn read_long() {
@@ -107,7 +110,10 @@ mod tests {
 	fn write_short() {
 		let mut vec = vec![];
 		vec.write_fix("short").unwrap();
-		assert_eq!(vec, &b"short\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0"[..]);
+		assert_eq!(
+			vec,
+			&b"short\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0\0"[..]
+		);
 	}
 
 	#[test]

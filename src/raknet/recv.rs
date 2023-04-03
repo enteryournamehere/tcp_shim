@@ -1,12 +1,12 @@
-use std::collections::HashMap;
 use std::collections::hash_map::Entry;
+use std::collections::HashMap;
 
 use endio::LERead;
-use endio_bit::BitReader;
+use endio_bit::BEBitReader;
 
-use crate::bridge::{MessageType, Packet};
-use super::rangelist::RangeList;
 use super::packet::{RaknetPacket, ReliabilityData};
+use super::rangelist::RangeList;
+use crate::bridge::{MessageType, Packet};
 
 #[derive(Default)]
 pub struct ReceivePart {
@@ -17,18 +17,20 @@ pub struct ReceivePart {
 }
 
 impl ReceivePart {
-	pub fn parse_packets(reader: &mut BitReader<&mut &[u8]>) -> Vec<RaknetPacket> {
+	pub fn parse_packets(reader: &mut BEBitReader<&mut &[u8]>) -> Vec<RaknetPacket> {
 		let mut rak_packets = vec![];
-		loop {
-			match reader.read() {
-				Ok(packet) => { rak_packets.push(packet) }
-				Err(_) => { break }
-			}
+		while let Ok(packet) = reader.read() {
+			rak_packets.push(packet);
 		}
 		rak_packets
 	}
 
-	pub fn process_incoming_packets(&mut self, rak_packets: Vec<RaknetPacket>, acks: &mut RangeList, closed: &mut bool) -> Vec<Packet> {
+	pub fn process_incoming_packets(
+		&mut self,
+		rak_packets: Vec<RaknetPacket>,
+		acks: &mut RangeList,
+		closed: &mut bool,
+	) -> Vec<Packet> {
 		let mut packets = Vec::with_capacity(rak_packets.len()); // around this number, fewer with skips, more with queue drains
 		for mut rak_packet in rak_packets {
 			match rak_packet.rel_data {
@@ -74,7 +76,9 @@ impl ReceivePart {
 				}
 			}
 
-			if rak_packet.data.len() >= 1 && rak_packet.data[0] == MessageType::DisconnectNotification as u8 {
+			if rak_packet.data.len() >= 1
+				&& rak_packet.data[0] == MessageType::DisconnectNotification as u8
+			{
 				*closed = true;
 				continue;
 			}
@@ -93,14 +97,9 @@ impl ReceivePart {
 						self.rel_ord_index = self.rel_ord_index.wrapping_add(1);
 						packets.push(Packet::from(rak_packet));
 						// release any queued up packets directly after this one
-						loop {
-							match self.out_of_order_packets.remove(&self.rel_ord_index) {
-								Some(x) => {
-									packets.push(x);
-									self.rel_ord_index = self.rel_ord_index.wrapping_add(1);
-								}
-								None => break,
-							}
+						while let Some(x) = self.out_of_order_packets.remove(&self.rel_ord_index) {
+							packets.push(x);
+							self.rel_ord_index = self.rel_ord_index.wrapping_add(1);
 						}
 						// don't push the packet twice
 						continue;
@@ -108,7 +107,8 @@ impl ReceivePart {
 						// packet too early
 						println!("relord packet too early {} > {}", ord, self.rel_ord_index);
 						// add to queue
-						self.out_of_order_packets.insert(ord, Packet::from(rak_packet));
+						self.out_of_order_packets
+							.insert(ord, Packet::from(rak_packet));
 						continue;
 					} else {
 						// duplicate
@@ -127,24 +127,37 @@ impl ReceivePart {
 
 #[cfg(test)]
 mod tests {
-	use super::{MessageType, RaknetPacket, RangeList, ReceivePart, ReliabilityData::*};
 	use super::super::packet::SplitPacketInfo;
+	use super::{MessageType, RaknetPacket, RangeList, ReceivePart, ReliabilityData::*};
 
 	fn unrel_seq(index: u32) -> RaknetPacket {
-		RaknetPacket { message_number: index, rel_data: UnreliableSequenced(index), split_packet_info: None, data: Box::new([index as u8]) }
+		RaknetPacket {
+			message_number: index,
+			rel_data: UnreliableSequenced(index),
+			split_packet_info: None,
+			data: Box::new([index as u8]),
+		}
 	}
 
 	fn rel_ord(index: u32) -> RaknetPacket {
-		RaknetPacket { message_number: index, rel_data: ReliableOrdered(index), split_packet_info: None, data: Box::new([index as u8]) }
+		RaknetPacket {
+			message_number: index,
+			rel_data: ReliableOrdered(index),
+			split_packet_info: None,
+			data: Box::new([index as u8]),
+		}
 	}
 
 	#[test]
 	fn unrel() {
 		let mut recv = ReceivePart::default();
 		let mut acks = RangeList::new();
-		let rak_packets = vec![
-			RaknetPacket { message_number: 0, rel_data: Unreliable, split_packet_info: None, data: Box::new([]) },
-		];
+		let rak_packets = vec![RaknetPacket {
+			message_number: 0,
+			rel_data: Unreliable,
+			split_packet_info: None,
+			data: Box::new([]),
+		}];
 		let packets = recv.process_incoming_packets(rak_packets, &mut acks, &mut false);
 		assert_eq!(acks.len(), 0);
 		assert_eq!(packets.len(), 1);
@@ -154,10 +167,7 @@ mod tests {
 	fn unrel_seq_duplicate() {
 		let mut recv = ReceivePart::default();
 		let mut acks = RangeList::new();
-		let rak_packets = vec![
-			unrel_seq(1),
-			unrel_seq(1),
-		];
+		let rak_packets = vec![unrel_seq(1), unrel_seq(1)];
 		let packets = recv.process_incoming_packets(rak_packets, &mut acks, &mut false);
 		assert_eq!(acks.len(), 0);
 		assert_eq!(packets.len(), 1);
@@ -166,9 +176,7 @@ mod tests {
 	fn unrel_seq_too_early() {
 		let mut recv = ReceivePart::default();
 		let mut acks = RangeList::new();
-		let rak_packets = vec![
-			unrel_seq(1),
-		];
+		let rak_packets = vec![unrel_seq(1)];
 		let packets = recv.process_incoming_packets(rak_packets, &mut acks, &mut false);
 		assert_eq!(packets.len(), 1);
 	}
@@ -177,10 +185,7 @@ mod tests {
 	fn unrel_seq_caught_up() {
 		let mut recv = ReceivePart::default();
 		let mut acks = RangeList::new();
-		let rak_packets = vec![
-			unrel_seq(1),
-			unrel_seq(0),
-		];
+		let rak_packets = vec![unrel_seq(1), unrel_seq(0)];
 		let packets = recv.process_incoming_packets(rak_packets, &mut acks, &mut false);
 		assert_eq!(packets.len(), 1);
 	}
@@ -189,9 +194,7 @@ mod tests {
 	fn unrel_seq_gap_too_large() {
 		let mut recv = ReceivePart::default();
 		let mut acks = RangeList::new();
-		let rak_packets = vec![
-			unrel_seq(u32::max_value()),
-		];
+		let rak_packets = vec![unrel_seq(u32::max_value())];
 		let packets = recv.process_incoming_packets(rak_packets, &mut acks, &mut false);
 		assert_eq!(packets.len(), 0);
 	}
@@ -201,10 +204,7 @@ mod tests {
 		let mut recv = ReceivePart::default();
 		let mut acks = RangeList::new();
 		recv.unrel_seq_index = u32::max_value();
-		let rak_packets = vec![
-			unrel_seq(u32::max_value()),
-			unrel_seq(u32::min_value()),
-		];
+		let rak_packets = vec![unrel_seq(u32::max_value()), unrel_seq(u32::min_value())];
 		let packets = recv.process_incoming_packets(rak_packets, &mut acks, &mut false);
 		assert_eq!(packets.len(), 2);
 	}
@@ -214,10 +214,7 @@ mod tests {
 		let mut recv = ReceivePart::default();
 		let mut acks = RangeList::new();
 		recv.unrel_seq_index = u32::max_value() - 1;
-		let rak_packets = vec![
-			unrel_seq(u32::max_value() - 1),
-			unrel_seq(u32::min_value()),
-		];
+		let rak_packets = vec![unrel_seq(u32::max_value() - 1), unrel_seq(u32::min_value())];
 		let packets = recv.process_incoming_packets(rak_packets, &mut acks, &mut false);
 		assert_eq!(packets.len(), 2);
 	}
@@ -226,10 +223,7 @@ mod tests {
 	fn rel_ord_duplicate() {
 		let mut recv = ReceivePart::default();
 		let mut acks = RangeList::new();
-		let rak_packets = vec![
-			rel_ord(0),
-			rel_ord(0),
-		];
+		let rak_packets = vec![rel_ord(0), rel_ord(0)];
 		let packets = recv.process_incoming_packets(rak_packets, &mut acks, &mut false);
 		assert_eq!(acks.len(), 1);
 		assert_eq!(packets.len(), 1);
@@ -239,9 +233,7 @@ mod tests {
 	fn rel_ord_too_early() {
 		let mut recv = ReceivePart::default();
 		let mut acks = RangeList::new();
-		let rak_packets = vec![
-			rel_ord(1),
-		];
+		let rak_packets = vec![rel_ord(1)];
 		let packets = recv.process_incoming_packets(rak_packets, &mut acks, &mut false);
 		assert_eq!(acks.len(), 1);
 		assert_eq!(packets.len(), 0);
@@ -251,10 +243,7 @@ mod tests {
 	fn rel_ord_caught_up() {
 		let mut recv = ReceivePart::default();
 		let mut acks = RangeList::new();
-		let rak_packets = vec![
-			rel_ord(1),
-			rel_ord(0),
-		];
+		let rak_packets = vec![rel_ord(1), rel_ord(0)];
 		let packets = recv.process_incoming_packets(rak_packets, &mut acks, &mut false);
 		assert_eq!(acks.len(), 2);
 		assert_eq!(packets.len(), 2);
@@ -266,11 +255,7 @@ mod tests {
 	fn rel_ord_gap() {
 		let mut recv = ReceivePart::default();
 		let mut acks = RangeList::new();
-		let rak_packets = vec![
-			rel_ord(5),
-			rel_ord(1),
-			rel_ord(0),
-		];
+		let rak_packets = vec![rel_ord(5), rel_ord(1), rel_ord(0)];
 		let packets = recv.process_incoming_packets(rak_packets, &mut acks, &mut false);
 		assert_eq!(acks.len(), 3);
 		assert_eq!(packets.len(), 2);
@@ -282,9 +267,7 @@ mod tests {
 	fn rel_ord_overflow_duplicate() {
 		let mut recv = ReceivePart::default();
 		let mut acks = RangeList::new();
-		let rak_packets = vec![
-			rel_ord(u32::max_value()),
-		];
+		let rak_packets = vec![rel_ord(u32::max_value())];
 		let packets = recv.process_incoming_packets(rak_packets, &mut acks, &mut false);
 		assert_eq!(packets.len(), 0);
 		assert_eq!(recv.out_of_order_packets.len(), 0);
@@ -295,10 +278,7 @@ mod tests {
 		let mut recv = ReceivePart::default();
 		let mut acks = RangeList::new();
 		recv.rel_ord_index = u32::max_value();
-		let rak_packets = vec![
-			rel_ord(u32::max_value()),
-			rel_ord(u32::min_value()),
-		];
+		let rak_packets = vec![rel_ord(u32::max_value()), rel_ord(u32::min_value())];
 		let packets = recv.process_incoming_packets(rak_packets, &mut acks, &mut false);
 		assert_eq!(packets.len(), 2);
 		assert_eq!(packets[0].data[0], u8::max_value());
@@ -310,10 +290,7 @@ mod tests {
 		let mut recv = ReceivePart::default();
 		let mut acks = RangeList::new();
 		recv.rel_ord_index = u32::max_value();
-		let rak_packets = vec![
-			rel_ord(u32::min_value()),
-			rel_ord(u32::max_value()),
-		];
+		let rak_packets = vec![rel_ord(u32::min_value()), rel_ord(u32::max_value())];
 		let packets = recv.process_incoming_packets(rak_packets, &mut acks, &mut false);
 		assert_eq!(packets.len(), 2);
 		assert_eq!(packets[0].data[0], u8::max_value());
@@ -325,10 +302,7 @@ mod tests {
 		let mut recv = ReceivePart::default();
 		let mut acks = RangeList::new();
 		recv.rel_ord_index = u32::max_value() - 1;
-		let rak_packets = vec![
-			rel_ord(u32::max_value()),
-			rel_ord(u32::max_value() - 1),
-		];
+		let rak_packets = vec![rel_ord(u32::max_value()), rel_ord(u32::max_value() - 1)];
 		let packets = recv.process_incoming_packets(rak_packets, &mut acks, &mut false);
 		assert_eq!(packets.len(), 2);
 		assert_eq!(packets[0].data[0], u8::max_value() - 1);
@@ -339,18 +313,16 @@ mod tests {
 	fn single_split_packet() {
 		let mut recv = ReceivePart::default();
 		let mut acks = RangeList::new();
-		let rak_packets = vec![
-			RaknetPacket {
-				message_number: 0,
-				rel_data: ReliableOrdered(0),
-				split_packet_info: Some(SplitPacketInfo {
-					id: 0,
-					index: 0,
-					count: 2,
-				}),
-				data: Box::new([]),
-			},
-		];
+		let rak_packets = vec![RaknetPacket {
+			message_number: 0,
+			rel_data: ReliableOrdered(0),
+			split_packet_info: Some(SplitPacketInfo {
+				id: 0,
+				index: 0,
+				count: 2,
+			}),
+			data: Box::new([]),
+		}];
 		let packets = recv.process_incoming_packets(rak_packets, &mut acks, &mut false);
 		assert_eq!(acks.len(), 1);
 		assert_eq!(packets.len(), 0);
@@ -393,14 +365,12 @@ mod tests {
 		let mut recv = ReceivePart::default();
 		let mut acks = RangeList::new();
 		let mut closed = false;
-		let rak_packets = vec![
-			RaknetPacket {
-				message_number: 0,
-				rel_data: ReliableOrdered(0),
-				split_packet_info: None,
-				data: Box::new([MessageType::DisconnectNotification as u8]),
-			},
-		];
+		let rak_packets = vec![RaknetPacket {
+			message_number: 0,
+			rel_data: ReliableOrdered(0),
+			split_packet_info: None,
+			data: Box::new([MessageType::DisconnectNotification as u8]),
+		}];
 		let packets = recv.process_incoming_packets(rak_packets, &mut acks, &mut closed);
 		assert!(closed);
 		assert_eq!(packets.len(), 0);

@@ -1,18 +1,18 @@
 use std::io::Result as Res;
 
 use endio::{Deserialize, LERead, LEWrite, LittleEndian, Serialize};
-use endio_bit::{BitReader, BitWriter};
+use endio_bit::{BEBitReader, BEBitWriter};
 
 use super::comp::Compressed;
 
 #[derive(Debug)]
 struct Range {
 	min: u32,
-	max: u32
+	max: u32,
 }
 #[derive(Debug)]
 pub struct RangeList {
-	ranges: Vec<Range>
+	ranges: Vec<Range>,
 }
 
 impl RangeList {
@@ -71,11 +71,20 @@ impl RangeList {
 			return;
 		}
 		if let Some(i) = insert {
-			self.ranges.insert(i, Range { min: item, max: item });
+			self.ranges.insert(
+				i,
+				Range {
+					min: item,
+					max: item,
+				},
+			);
 			return;
 		}
 		// We ran through the whole list and couldn't find a good existing range
-		self.ranges.push(Range { min: item, max: item });
+		self.ranges.push(Range {
+			min: item,
+			max: item,
+		});
 	}
 }
 
@@ -89,14 +98,16 @@ impl Iterator for Items {
 
 	fn next(&mut self) -> Option<Self::Item> {
 		loop {
-			if let None = self.range {
+			if self.range.is_none() {
 				let range = self.range_iter.next()?;
 				self.range = Some(range.min..=range.max);
 			}
 			if let Some(range) = &mut self.range {
 				match range.next() {
-					None => { self.range = None }
-					Some(x) => { return Some(x); }
+					None => self.range = None,
+					Some(x) => {
+						return Some(x);
+					}
 				}
 			}
 		}
@@ -108,12 +119,15 @@ impl IntoIterator for RangeList {
 	type IntoIter = Items;
 
 	fn into_iter(self) -> Self::IntoIter {
-		Items { range_iter: self.ranges.into_iter(), range: None }
+		Items {
+			range_iter: self.ranges.into_iter(),
+			range: None,
+		}
 	}
 }
 
-impl<W: std::io::Write> Serialize<LittleEndian, BitWriter<W>> for &RangeList {
-	fn serialize(self, writer: &mut BitWriter<W>) -> Res<()> {
+impl<W: std::io::Write> Serialize<LittleEndian, BEBitWriter<W>> for &RangeList {
+	fn serialize(self, writer: &mut BEBitWriter<W>) -> Res<()> {
 		writer.write(Compressed::<u16>(self.ranges.len() as u16))?;
 		for range in &self.ranges {
 			writer.write_bit(range.min == range.max)?;
@@ -126,8 +140,8 @@ impl<W: std::io::Write> Serialize<LittleEndian, BitWriter<W>> for &RangeList {
 	}
 }
 
-impl<R: std::io::Read> Deserialize<LittleEndian, BitReader<R>> for RangeList {
-	fn deserialize(reader: &mut BitReader<R>) -> Res<Self> {
+impl<R: std::io::Read> Deserialize<LittleEndian, BEBitReader<R>> for RangeList {
+	fn deserialize(reader: &mut BEBitReader<R>) -> Res<Self> {
 		let ranges_count: Compressed<u16> = reader.read()?;
 		let ranges_count = u16::from(ranges_count);
 		let mut ranges = vec![];
@@ -150,9 +164,9 @@ impl<R: std::io::Read> Deserialize<LittleEndian, BitReader<R>> for RangeList {
 mod tests {
 	use std::io::Result as Res;
 
-	use endio::{LERead, LEWrite};
-	use endio_bit::{BitReader, BitWriter};
 	use super::RangeList;
+	use endio::{LERead, LEWrite};
+	use endio_bit::{BEBitReader, BEBitWriter};
 
 	const DATA: &[u8] = b"\xd0\x02\x00\x00\x00\x06\x00\x00\x00\x05\x00\x00\x00\x06\x00\x00\x00\x84\x00\x00\x00\x03\x80\x00\x00\x04@\x00\x00\x00";
 
@@ -226,9 +240,11 @@ mod tests {
 	#[test]
 	fn serialize() -> Res<()> {
 		let list = create_multiple_ranges();
-		let mut vec = vec![];{
-		let mut writer = BitWriter::new(&mut vec);
-		writer.write(&list)?;}
+		let mut vec = vec![];
+		{
+			let mut writer = BEBitWriter::new(&mut vec);
+			writer.write(&list)?;
+		}
 		assert_eq!(vec, DATA);
 		Ok(())
 	}
@@ -236,7 +252,7 @@ mod tests {
 	#[test]
 	fn deserialize() -> Res<()> {
 		let slice = &mut &DATA[..];
-		let mut reader = BitReader::new(slice);
+		let mut reader = BEBitReader::new(slice);
 		let list: RangeList = reader.read()?;
 		assert_multiple_ranges(&list);
 		Ok(())

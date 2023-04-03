@@ -2,15 +2,14 @@
 name = "raknet_shim"
 version = "0.1.0"
 authors = ["lcdr"]
-edition = "2018"
-description = "Proxy server for converting the RakNet 3.25 protocol to my new TCP/UDP based protocol."
+edition = "2021"
+description = "Proxy server for converting the RakNet 3.25 protocol to lcdr's new TCP/UDP based protocol."
 readme = "README.md"
 license = "AGPL-3.0-or-later"
-repository = "https://github.com/lcdr/raknet_shim/"
+repository = "https://github.com/enteryournamehere/server_tcp_shim/"
 
 [dependencies]
-endio = "0.1.0"
-endio_bit = "0.1.0"
-rustls = "0.14.0"
-webpki = "0.18.1"
-webpki-roots = "0.15.0"
+endio = { git = "https://github.com/lcdr/endio" }
+endio_bit = { git = "https://github.com/lcdr/endio_bit" }
+toml = "0.7.3"
+serde = { version = "1.0", features = ["derive"] }

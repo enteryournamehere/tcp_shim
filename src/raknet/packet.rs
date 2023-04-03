@@ -1,12 +1,12 @@
 use std::io::Result as Res;
 
 use endio::{Deserialize, LERead, LEWrite, LittleEndian, Serialize};
-use endio_bit::{BitReader, BitWriter};
+use endio_bit::{BEBitReader, BEBitWriter};
 
-use crate::bridge::{Packet, Reliability};
 use super::comp::Compressed;
+use crate::bridge::{Packet, Reliability};
 
-#[derive(Clone, PartialEq)]
+#[derive(Clone, PartialEq, Eq)]
 pub enum ReliabilityData {
 	Unreliable,
 	UnreliableSequenced(u32),
@@ -25,8 +25,8 @@ impl From<ReliabilityData> for Reliability {
 	}
 }
 
-impl<R: std::io::Read> Deserialize<LittleEndian, BitReader<R>> for ReliabilityData {
-	fn deserialize(reader: &mut BitReader<R>) -> Res<Self> {
+impl<R: std::io::Read> Deserialize<LittleEndian, BEBitReader<R>> for ReliabilityData {
+	fn deserialize(reader: &mut BEBitReader<R>) -> Res<Self> {
 		let id = reader.read_bits(3)?;
 		Ok(match id {
 			0 => ReliabilityData::Unreliable,
@@ -48,8 +48,8 @@ impl<R: std::io::Read> Deserialize<LittleEndian, BitReader<R>> for ReliabilityDa
 	}
 }
 
-impl<W: std::io::Write> Serialize<LittleEndian, BitWriter<W>> for &ReliabilityData {
-	fn serialize(self, writer: &mut BitWriter<W>) -> Res<()> {
+impl<W: std::io::Write> Serialize<LittleEndian, BEBitWriter<W>> for &ReliabilityData {
+	fn serialize(self, writer: &mut BEBitWriter<W>) -> Res<()> {
 		let val = match self {
 			ReliabilityData::Unreliable => 0,
 			ReliabilityData::UnreliableSequenced(_) => 1,
@@ -74,21 +74,17 @@ pub struct SplitPacketInfo {
 	pub count: u32,
 }
 
-impl<R: std::io::Read> Deserialize<LittleEndian, BitReader<R>> for SplitPacketInfo {
-	fn deserialize(reader: &mut BitReader<R>) -> Res<Self> {
+impl<R: std::io::Read> Deserialize<LittleEndian, BEBitReader<R>> for SplitPacketInfo {
+	fn deserialize(reader: &mut BEBitReader<R>) -> Res<Self> {
 		let id = reader.read()?;
 		let index = u32::from(reader.read::<Compressed<u32>>()?);
 		let count = u32::from(reader.read::<Compressed<u32>>()?);
-		Ok(SplitPacketInfo {
-			id,
-			index,
-			count,
-		})
+		Ok(SplitPacketInfo { id, index, count })
 	}
 }
 
-impl<W: std::io::Write> Serialize<LittleEndian, BitWriter<W>> for &SplitPacketInfo {
-	fn serialize(self, writer: &mut BitWriter<W>) -> Res<()> {
+impl<W: std::io::Write> Serialize<LittleEndian, BEBitWriter<W>> for &SplitPacketInfo {
+	fn serialize(self, writer: &mut BEBitWriter<W>) -> Res<()> {
 		writer.write(self.id)?;
 		writer.write(Compressed::<u32>(self.index))?;
 		writer.write(Compressed::<u32>(self.count))
@@ -104,12 +100,15 @@ pub struct RaknetPacket {
 
 impl From<RaknetPacket> for Packet {
 	fn from(packet: RaknetPacket) -> Packet {
-		Packet { reliability: Reliability::from(packet.rel_data), data: packet.data }
+		Packet {
+			reliability: Reliability::from(packet.rel_data),
+			data: packet.data,
+		}
 	}
 }
 
-impl<R: std::io::Read> Deserialize<LittleEndian, BitReader<R>> for RaknetPacket {
-	fn deserialize(reader: &mut BitReader<R>) -> Res<Self> {
+impl<R: std::io::Read> Deserialize<LittleEndian, BEBitReader<R>> for RaknetPacket {
+	fn deserialize(reader: &mut BEBitReader<R>) -> Res<Self> {
 		let message_number = reader.read()?;
 		let rel_data = reader.read()?;
 		let split_packet_info = match reader.read_bit()? {
@@ -118,7 +117,7 @@ impl<R: std::io::Read> Deserialize<LittleEndian, BitReader<R>> for RaknetPacket 
 		};
 		let length = u16::from(reader.read::<Compressed<u16>>()?);
 		reader.align();
-		let mut data = vec![0; (length / 8) as usize];
+		let mut data = vec![0; ((length + 7) / 8) as usize];
 		std::io::Read::read_exact(reader, &mut data)?;
 		Ok(RaknetPacket {
 			message_number,
@@ -129,8 +128,8 @@ impl<R: std::io::Read> Deserialize<LittleEndian, BitReader<R>> for RaknetPacket 
 	}
 }
 
-impl<W: std::io::Write> Serialize<LittleEndian, BitWriter<W>> for &RaknetPacket {
-	fn serialize(self, writer: &mut BitWriter<W>) -> Res<()> {
+impl<W: std::io::Write> Serialize<LittleEndian, BEBitWriter<W>> for &RaknetPacket {
+	fn serialize(self, writer: &mut BEBitWriter<W>) -> Res<()> {
 		writer.write(self.message_number)?;
 		writer.write(&self.rel_data)?;
 		writer.write_bit(self.split_packet_info.is_some())?;

@@ -17,54 +17,59 @@
 
 	More information about the new protocol can be found in the documentation for the TcpUdp connection implementation, and info about the translation and interception process can be found in the `Bridge` documentation.
 */
+use serde::Deserialize;
 use std::collections::HashMap;
 use std::fs;
 use std::io;
 use std::io::Result as Res;
+use std::net::TcpListener;
 use std::net::{SocketAddr, ToSocketAddrs, UdpSocket};
 use std::thread;
 use std::time::Duration;
 
 mod bridge;
-mod log;
 mod raknet;
 mod string;
 mod tcpudp;
-use crate::bridge::{Bridge, MessageType, ShimCommand};
-use crate::raknet::MAX_PACKET_SIZE;
-use crate::raknet::Connection as RakConn;
-use crate::tcpudp::Connection as TcpUdpConn;
+use tcpudp::Connection;
 
-const SLEEP_TIME: Duration = Duration::from_millis(1000/30);
-/// Buffer for receiving RakNet datagrams.
-static mut BUF: [u8; MAX_PACKET_SIZE] = [0; MAX_PACKET_SIZE];
+use crate::bridge::{Bridge, ShimCommand};
+const SLEEP_TIME: Duration = Duration::from_millis(1000 / 30);
 
 /// A RakNet server translating and relaying incoming connections to a TcpUdp server.
 pub struct Shim {
 	/// The remote address to relay connections to.
 	connect_addr: SocketAddr,
 	/// The RakNet socket. As UDP is a connectionless protocol, there is only one socket no matter how many clients connect to the server.
-	raknet: UdpSocket,
+	tcp_listener: TcpListener,
 	/// The map from an incoming RakNet address to the bridge responsible for handling the specific connection.
 	bridges: HashMap<SocketAddr, Bridge>,
+	config: AppConfig,
 }
 
 impl Shim {
 	/// Creates a new Shim with the specified local address to listen on and the remote address to relay connections to.
-	fn new(listen_addr: SocketAddr, connect_addr: SocketAddr) -> Res<Shim> {
-		let raknet = UdpSocket::bind(listen_addr)?;
-		raknet.set_nonblocking(true)?;
-		println!("Starting new shim");
+	fn new(listen_addr: SocketAddr, connect_addr: SocketAddr, config: AppConfig) -> Res<Shim> {
+		let real_listen_addr = ("0.0.0.0", listen_addr.port())
+			.to_socket_addrs()?
+			.next()
+			.unwrap();
+		let tcp_server = TcpListener::bind(real_listen_addr.to_string().as_str())?;
+		tcp_server.set_nonblocking(true)?;
+
+		println!("Starting new shim. Listening on {listen_addr}, connecting to RakNet at {connect_addr}.");
+
 		Ok(Shim {
 			connect_addr,
-			raknet,
+			tcp_listener: tcp_server,
 			bridges: HashMap::new(),
+			config,
 		})
 	}
 
 	/// Returns the local address of the RakNet socket. This may not be the same as the `listen_address` passed to `new` if the passed address had 0 as port.
 	pub fn local_addr(&self) -> Res<SocketAddr> {
-		self.raknet.local_addr()
+		self.tcp_listener.local_addr()
 	}
 
 	/**
@@ -72,10 +77,14 @@ impl Shim {
 
 		The RakNet socket is checked by the `raknet_step` method, while the TCP/UDP sockets are checked by the bridge's `tcpudp_receive` method.
 	*/
-	fn step(&mut self, cmds: &mut Vec<ShimCommand>, addrs: &HashMap<SocketAddr, SocketAddr>) -> Res<()> {
-		self.raknet_receive()?;
-		self.bridges.retain(|_addr, bridge| {
-			match bridge.tcpudp_receive(addrs) {
+	fn step(
+		&mut self,
+		cmds: &mut Vec<ShimCommand>,
+		addrs: &HashMap<SocketAddr, SocketAddr>,
+	) -> Res<()> {
+		self.client_receive()?;
+		self.bridges
+			.retain(|_addr, bridge| match bridge.server_receive(addrs) {
 				Ok(cmd) => {
 					cmds.extend(cmd);
 					true
@@ -84,95 +93,107 @@ impl Shim {
 					if err.kind() == io::ErrorKind::ConnectionReset {
 						println!("Connection was reset unexpectedly");
 					} else if err.kind() != io::ErrorKind::ConnectionAborted {
-						println!("Error: {:?}", err);
+						println!("Error in `step`: {err:?}");
 					}
 					false
 				}
-			}
-		});
+			});
 		Ok(())
 	}
 
-	/**
-		Checks the RakNet socket for incoming packets.
-	*/
-	fn raknet_receive(&mut self) -> Res<()> {
-		loop {
-			let (length, source) = match self.raknet.recv_from( unsafe {&mut BUF}) {
-				Ok(x) => x,
-				Err(err) => {
-					if err.kind() == io::ErrorKind::WouldBlock || err.kind() == io::ErrorKind::ConnectionReset {
-						return Ok(());
-					}
-					dbg!(&err);
-					return Err(err);
-				}
-			};
-			match self.bridges.get_mut(&source) {
-				None => {
-					if length <= 2 && unsafe {BUF[0]} == MessageType::OpenConnectionRequest as u8 {
-						let response = match self.create_bridge(source) {
-							Ok(bridge) => {
-								self.bridges.insert(source, bridge);
-								MessageType::OpenConnectionReply
-							}
-							Err(err) => {
-								if err.kind() == io::ErrorKind::ConnectionRefused {
-									println!("Error: Connection to {} refused", self.connect_addr);
-								} else {
-									println!("Error: Could not establish connection: {:?}", err);
-								}
-								MessageType::NoFreeIncomingConnections
-							}
-						};
-						self.raknet.send_to(&[response as u8, 0], &source)?;
-					}
-				}
-				Some(bridge) => {
-					if let Err(err) = bridge.raknet_receive( unsafe {&mut &BUF[..length]}) {
-						println!("error: {}", err);
-						self.bridges.remove(&source);
-					}
-				}
-			}
+	fn client_receive(&mut self) -> Res<()> {
+		while let Ok((stream, addr)) = self.tcp_listener.accept() {
+			let conn = Connection::from(stream)?;
+
+			let new_bridge = self.create_bridge(conn)?;
+			self.bridges.insert(addr, new_bridge);
 		}
+
+		self.bridges
+			.retain(|_addr, bridge| match bridge.client_receive() {
+				Ok(msg) => {
+					bridge.forward_to_server(&msg).unwrap_or_else(|err| {
+						println!("Error in `client_receive`: {err:?}");
+					});
+					true
+				}
+				Err(err) => {
+					if err.kind() == io::ErrorKind::ConnectionReset {
+						return false;
+					}
+					if err.kind() != io::ErrorKind::WouldBlock {
+						dbg!(&err);
+					}
+					true
+				}
+			});
+
+		Ok(())
 	}
 
-	fn create_bridge(&self, source: SocketAddr) -> Res<Bridge> {
-		let raknet = RakConn::new(self.raknet.try_clone()?, source);
-		let tcpudp = TcpUdpConn::new(self.connect_addr)?;
-		Ok(Bridge::new(raknet, tcpudp))
+	fn create_bridge(&self, source: Connection) -> Res<Bridge> {
+		let raknet_to_server_socket = UdpSocket::bind("0.0.0.0:0")?;
+		raknet_to_server_socket.connect(self.connect_addr)?;
+		raknet_to_server_socket.set_nonblocking(true)?;
+		raknet_to_server_socket.send_to(&[9, 121], self.connect_addr)?;
+		Ok(Bridge::new(
+			source,
+			raknet_to_server_socket,
+			self.config.clone(),
+		))
 	}
 }
 
 impl Drop for Shim {
 	fn drop(&mut self) {
-		println!("Closing shim {}", self.raknet.local_addr().unwrap().port());
+		println!("Closing shim {}", self.connect_addr.port());
 	}
 }
 
-/**
-	The main function.
+#[derive(Deserialize, Debug, Clone)]
+pub struct AppConfig {
+	external_ip: String,
+	external_auth_port: u16,
+	raknet_ip: String,
+	raknet_auth_port: u16,
+}
 
-	This program uses a lot of sockets which all need to be responsive to incoming packets. This means that blocking I/O is not reasonable. At the same time, the system of shims, bridges, and connections is complex enough that it isn't possible to easily use OS polling through a library like `mio`. Therefore, "manual" non-blocking I/O is used: The main function acts as an event loop, periodically checking all shims for incoming packets and sleeping between iterations.
+fn load_config() -> Result<AppConfig, io::Error> {
+	let config_str = fs::read_to_string("config.toml").map_err(|err| {
+		io::Error::new(
+			io::ErrorKind::NotFound,
+			format!("Could not read config file `config.toml`: {err}"),
+		)
+	})?;
+	toml::from_str(&config_str).map_err(|err| {
+		io::Error::new(
+			io::ErrorKind::InvalidData,
+			format!("Error in formatting config file `config.toml`: {err}"),
+		)
+	})
+}
 
-	At the start of the program, the shim corresponding to LU's auth server is created at port 1001. If later interaction results in spinning off new `Shim` instances, they will be handed down to this function and added to the list of shims to check.
-*/
 fn main() -> Res<()> {
-	let connect_domain = match fs::read_to_string("shim_config.txt") {
-		Ok(s) => s,
-		Err(_) => String::from("lu.lcdruniverse.org"),
-	};
+	let config: AppConfig = load_config().unwrap_or_else(|err| {
+		eprintln!("{err}");
+		std::process::exit(1);
+	});
 
-	let listen_addr = "127.0.0.1:1001".to_socket_addrs().unwrap().next().unwrap();
-	let connect_addr = (&connect_domain[..], 21836).to_socket_addrs().unwrap().next().unwrap();
+	let listen_addr = ("0.0.0.0", config.external_auth_port)
+		.to_socket_addrs()
+		.unwrap()
+		.next()
+		.unwrap();
+	let connect_addr = (config.raknet_ip.clone(), config.raknet_auth_port)
+		.to_socket_addrs()
+		.unwrap()
+		.next()
+		.unwrap();
 
 	let mut addrs = HashMap::new();
 	let mut shims = vec![];
 	addrs.insert(connect_addr, listen_addr);
-	shims.push(Shim::new(listen_addr, connect_addr)?);
-
-	println!("To use this shim, set your client's AUTHSERVERIP in boot.cfg to localhost.");
+	shims.push(Shim::new(listen_addr, connect_addr, config.clone())?);
 
 	loop {
 		let mut cmds = vec![];

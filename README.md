@@ -20,5 +20,39 @@ As the LU client is closed-source, its use of the RakNet protocol cannot be repl
 
 More information about the new protocol can be found in the documentation for the TcpUdp connection implementation, and info about the translation and interception process can be found in the `Bridge` documentation.
 
-<h2>Configuration:</h2>
+<h2>Configuration</h2>
 
+Configure the `config.toml` file with:
+
+`external_ip:` The IP the final user uses to connect to your LU server.<br>
+`external_auth_port:` The auth port the final user uses to connect to your LU server. `Default: 21836`<br>
+`raknet_ip:` The IP of your internal LU server.<br>
+`raknet_auth_port:` The auth port of your internal LU server.<br>
+`external_ip:` The IP the shim should bind to for auth and world. `Default: 0.0.0.0`<br>
+
+<h2>Accessing the server</h2>
+
+You'll need <a href="https://github.com/lcdr/raknet_shim_dll/releases"> Lcdr's TCP/UDP protocol mod</a> to connect to the server.
+
+<h3>Warning</h3>
+
+If your server is not running on localhost, you'll need to setup a reverse-proxy with a valid SSL/TLS certificate and a domain name, as <a href="https://github.com/lcdr/raknet_shim_dll/releases"> Lcdr's TCP/UDP protocol mod</a> requires a secure connection for non-locally hosted servers.
+You can do so using a software such as Nginx.
+
+You can request a free SSL/TLS certificate from <a href="[https://github.com/lcdr/raknet_shim_dll/releases](https://letsencrypt.org/)"> Let's Encrypt</a>.
+
+<h3>Sample Nginx configuration</h3>
+
+```
+    server {
+        listen     192.168.1.1:21836 ssl;
+        listen     192.168.1.1:3000-3300 ssl;
+        proxy_pass 127.0.0.1:$server_port;
+
+        #SSL
+        ssl_certificate     {YOUR fullchain.pem};
+        ssl_certificate_key {YOUR privkey.pem};
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers         HIGH:!aNULL:!MD5;
+    }
+```

@@ -72,16 +72,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "raknet_shim"
-version = "0.1.0"
-dependencies = [
- "endio",
- "endio_bit",
- "serde",
- "toml",
-]
-
-[[package]]
 name = "serde"
 version = "1.0.159"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -130,6 +120,16 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "tcp_shim"
+version = "0.1.0"
+dependencies = [
+ "endio",
+ "endio_bit",
+ "serde",
+ "toml",
 ]
 
 [[package]]

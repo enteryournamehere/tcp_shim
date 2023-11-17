@@ -2,4 +2,4 @@ external_ip = "123.45.67.89"
 external_auth_port = 21836
 raknet_ip = "127.0.0.1"
 raknet_auth_port = 1001
-bind to = 0.0.0.0
+bind_to = 0.0.0.0

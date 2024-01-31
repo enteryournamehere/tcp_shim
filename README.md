@@ -2,7 +2,7 @@
 
 <h2>Details</h2>
 
-A program to transparently translate TCP and UDP traffic to RakNet 3.25.
+A program to transparently translate TCP traffic to RakNet 3.25.
 
 RakNet's protocol is designed to support sending packets with one of multiple reliability modes. To achieve this, the RakNet protocol is layered on top of UDP, and implements the necessary protocol structures and behaviors for ensuring the various reliability modes.
 
@@ -32,11 +32,11 @@ Configure the `config.toml` file with:
 
 <h2>Accessing the server</h2>
 
-You'll need <a href="https://github.com/lcdr/raknet_shim_dll/releases"> Lcdr's TCP/UDP protocol mod</a> to connect to the server.
+You'll need <a href="https://github.com/lcdr/raknet_shim_dll/releases"> lcdr's TCP/UDP protocol mod</a> to connect to the server.
 
 <h3>Warning</h3>
 
-If your server is not running on localhost, you'll need to setup a reverse-proxy with a valid SSL/TLS certificate and a domain name, as <a href="https://github.com/lcdr/raknet_shim_dll/releases"> Lcdr's TCP/UDP protocol mod</a> requires a secure connection for non-locally hosted servers.
+If your server is not running on localhost, you'll need to setup a reverse-proxy with a valid SSL/TLS certificate and a domain name, as <a href="https://github.com/lcdr/raknet_shim_dll/releases"> lcdr's TCP/UDP protocol mod</a> requires a secure connection for non-locally hosted servers.
 You can do so using a software such as Nginx.
 
 You can request a free SSL/TLS certificate from <a href="[https://github.com/lcdr/raknet_shim_dll/releases](https://letsencrypt.org/)"> Let's Encrypt</a>.

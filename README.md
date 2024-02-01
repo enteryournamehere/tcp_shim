@@ -28,7 +28,7 @@ Configure the `config.toml` file with:
 `external_auth_port:` The auth port the final user uses to connect to your LU server. `Default: 21836`<br>
 `raknet_ip:` The IP of your internal LU server.<br>
 `raknet_auth_port:` The auth port of your internal LU server.<br>
-`external_ip:` The IP the shim should bind to for auth and world. `Default: 0.0.0.0`<br>
+`bind_to:` The IP the shim should bind to for auth and world. `Default: 0.0.0.0`<br>
 
 <h2>Accessing the server</h2>
 

@@ -50,7 +50,7 @@ pub struct Shim {
 impl Shim {
 	/// Creates a new Shim with the specified local address to listen on and the remote address to relay connections to.
 	fn new(listen_addr: SocketAddr, connect_addr: SocketAddr, config: AppConfig) -> Res<Shim> {
-		let real_listen_addr = ("0.0.0.0", listen_addr.port())
+		let real_listen_addr = (config.bind_to.clone(), listen_addr.port())
 			.to_socket_addrs()?
 			.next()
 			.unwrap();
@@ -156,6 +156,7 @@ pub struct AppConfig {
 	external_auth_port: u16,
 	raknet_ip: String,
 	raknet_auth_port: u16,
+	bind_to: String,
 }
 
 fn load_config() -> Result<AppConfig, io::Error> {
@@ -179,7 +180,7 @@ fn main() -> Res<()> {
 		std::process::exit(1);
 	});
 
-	let listen_addr = ("0.0.0.0", config.external_auth_port)
+	let listen_addr = (config.bind_to.clone(), config.external_auth_port)
 		.to_socket_addrs()
 		.unwrap()
 		.next()

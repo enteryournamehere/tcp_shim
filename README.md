@@ -1,5 +1,8 @@
+<h1>TCP Shim</h1>
 
-A program to transparently translate RakNet 3.25 traffic to TCP and UDP.
+<h2>Details</h2>
+
+A program to transparently translate TCP traffic to RakNet 3.25.
 
 RakNet's protocol is designed to support sending packets with one of multiple reliability modes. To achieve this, the RakNet protocol is layered on top of UDP, and implements the necessary protocol structures and behaviors for ensuring the various reliability modes.
 
@@ -16,3 +19,40 @@ For encryption, the TCP connection can be configured to use TLS. As TLS needs a 
 As the LU client is closed-source, its use of the RakNet protocol cannot be replaced directly, and the translation into TCP/UDP needs to be transparent to the client. To accomplish this, this program hosts a RakNet 3.25 server which the client connects to. Traffic is translated on the fly and relayed to a server using the new protocol. LU Redirect packets are intercepted and new relays are spun up to facilitate dynamic connections to multiple servers.
 
 More information about the new protocol can be found in the documentation for the TcpUdp connection implementation, and info about the translation and interception process can be found in the `Bridge` documentation.
+
+<h2>Configuration</h2>
+
+Configure the `config.toml` file with:
+
+`external_ip:` The IP the final user uses to connect to your LU server.<br>
+`external_auth_port:` The auth port the final user uses to connect to your LU server. `Default: 21836`<br>
+`raknet_ip:` The IP of your internal LU server.<br>
+`raknet_auth_port:` The auth port of your internal LU server.<br>
+`bind_to:` The IP the shim should bind to for auth and world. `Default: 0.0.0.0`<br>
+
+<h2>Accessing the server</h2>
+
+You'll need <a href="https://github.com/lcdr/raknet_shim_dll/releases"> lcdr's TCP/UDP protocol mod</a> to connect to the server.
+
+<h3>Warning</h3>
+
+If your server is not running on localhost, you'll need to setup a reverse-proxy with a valid SSL/TLS certificate and a domain name, as <a href="https://github.com/lcdr/raknet_shim_dll/releases"> lcdr's TCP/UDP protocol mod</a> requires a secure connection for non-locally hosted servers.
+You can do so using a software such as Nginx.
+
+You can request a free SSL/TLS certificate from <a href="[https://github.com/lcdr/raknet_shim_dll/releases](https://letsencrypt.org/)"> Let's Encrypt</a>.
+
+<h3>Sample Nginx configuration</h3>
+
+```
+    server {
+        listen     192.168.1.1:21836 ssl;
+        listen     192.168.1.1:3000-3300 ssl;
+        proxy_pass 127.0.0.1:$server_port;
+
+        #SSL
+        ssl_certificate     {YOUR fullchain.pem};
+        ssl_certificate_key {YOUR privkey.pem};
+        ssl_protocols TLSv1.2 TLSv1.3;
+        ssl_ciphers         HIGH:!aNULL:!MD5;
+    }
+```

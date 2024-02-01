@@ -1,12 +1,12 @@
 [package]
-name = "raknet_shim"
+name = "tcp_shim"
 version = "0.1.0"
-authors = ["lcdr"]
+authors = ["lcdr", "zaop"]
 edition = "2021"
-description = "Proxy server for converting the RakNet 3.25 protocol to lcdr's new TCP/UDP based protocol."
+description = "Proxy server for converting lcdr's TCP/UDP based protocol to RakNet's protocol."
 readme = "README.md"
 license = "AGPL-3.0-or-later"
-repository = "https://github.com/enteryournamehere/server_tcp_shim/"
+repository = "https://github.com/enteryournamehere/tcp_shim/"
 
 [dependencies]
 endio = { git = "https://github.com/lcdr/endio" }
